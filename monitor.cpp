@@ -6,9 +6,13 @@ class Monitor {
     public:
         int id; //monitor id used for monitor-monitor communication
         vector<string> subformula; //piece of formula we will evaluate - just the and, or operators
+        //["and","or"]
+        vector<bool> observations; //array of different boolean values from monitors
+        //[true,false,false]
+
         int num_monitors = 10; //number of monitors in system
         vector<bool> verdicts; //array of all the verdicts from every monitor, indices are monitor ids
-        vector<bool> observations; //array of different boolean values from monitors
+
         Monitor(int m_id, vector<string> m_subformula, int num_monitors) //constructor
         {
             id = m_id;
