@@ -3,224 +3,193 @@
 #include <math.h>
 #include <fstream>
 #include <iostream>
+#include <filesystem>
 #include <vector>
 #include <time.h>
 #include <omp.h>
 #include <stdlib.h>
 
-class createSMT
-{
-private:
-    string traceFileName;
-    string EValue[10][100];
-    string EName[10][100];
-    int numProcess, numEvent[10];
+using namespace std;
+using namespace z3;
 
-    string EValueAll[10][100];
-    int numEventAll[10];
-    int hbSet[50][2];
-    int numHbSet;
+class Monitor {
+    public:
+        int id; //monitor id used for monitor-monitor communication
+        vector<string> subformula; //piece of formula we will evaluate - just the and, or operators
+        //["and","or"]
+        vector<bool> observations; //array of different boolean values from monitors
+        //[true,false,false]
+        //in this example, together this forms "true and false or false"
+        int num_monitors = 10; //number of monitors in system
+        vector<bool> verdicts; //array of all the verdicts from every monitor, indices are monitor ids
+        vector<bool> verdicts_mod; //array that tells us which verdicts have been modified
 
-    void readFile();
-    void readSegTrace(int, int, int);
+        string traceFileName;
 
-public:
-    createSMT();
-    createSMT(string);
-    void makeSMTProg(int, int, int, string, int);
-    bool solveSMTProg(string[10], int, int, int, int, int);
-};
+        //value and name and numEvents for segments of trace
+        string EValue[10][100];
+        string EName[10][100];
+        int numProcess, numEvent[10];
 
-createSMT::createSMT()
-{
-    traceFileName = "toilet_details.txt";
-    int i, j;
-    for(i = 0; i < 10; i++)
-    {
-        for(j = 0; j < 100; j++)
+        //value and numEvents for the entire trace file
+        string EValueAll[10][100];
+        int numEventAll[10];
+        //happenBefore set
+        int hbSet[50][2];
+        int numHbSet;
+
+        Monitor()
         {
-            EName[i][j] = "";
-            EValue[i][j] = "";
 
-            EValueAll[i][j] = "";
         }
-        numEvent[i] = 0;
-        numEventAll[i] = 0;
-    }
-    numProcess = 0;
-    for(i = 0; i < 50; i++)
-    {
-        hbSet[i][0] = 0;
-        hbSet[i][1] = 0;
-    }
-    numHbSet = 0;
-}
 
-createSMT::createSMT(string one)
-{
-    traceFileName = one;
-    int i, j;
-    for(i = 0; i < 10; i++)
-    {
-        for(j = 0; j < 100; j++)
+        Monitor(int m_id, vector<string> m_subformula, int m_num_monitors) //constructor
         {
-            EName[i][j] = "";
-            EValue[i][j] = "";
-
-            EValueAll[i][j] = "";
-        }
-        numEvent[i] = 0;
-        numEventAll[i] = 0;
-    }
-    numProcess = 0;
-    for(i = 0; i < 50; i++)
-    {
-        hbSet[i][0] = 0;
-        hbSet[i][1] = 0;
-    }
-    numHbSet = 0;
-}
-
-void createSMT::readFile()
-{
-    ifstream MyFile(traceFileName);
-    string line;
-    int proc = 0, event = -1, num = 0;
-    string word;
-    numProcess = -1;
-
-    while(getline(MyFile, line))
-    {
-        if(line.find("light") != -1 || line.find("switch"))
-        {
-            // cout << "1" << line << "\n";
-            numProcess++;
-        }
-        else
-        {
-            EValueAll[numProcess][numEventAll[numProcess]++] = stoi(line);
-            cout << EValueAll[numProcess][numEventAll[numProcess] - 1] << endl;
-        }
-    }
-    MyFile.close();
-}
-
-void createSMT::readSegTrace(int start, int end, int eps)
-{
-    int i, j, num = 1;
-    start = max(start - eps, 0);
-    // cout << start << " : " << end << endl;
-    for(i = 0; i < numProcess; i++)
-    {
-        numEvent[i] = 0;
-        for(j = start; j < min(numEventAll[i], end); j++)
-        {
-            numEvent[i]++;
-            EName[i][j] = to_string(num++);
-            EValue[i][j] = EValueAll[i][j];
-        }
-    }
-    // cout << num << "\n";
-    for(int i = 0; i < numProcess; i++)
-    {
-        for(int j = 0; j < numEvent[i]; j++)
-        {
-            for(int k = 0; k < numProcess; k++)
+            id = m_id;
+            subformula = m_subformula;
+            num_monitors = m_num_monitors;
+            for(int c = 0; c < num_monitors; c++)
             {
-                for(int l = 0; l < numEvent[k]; l++)
+                verdicts.push_back(false);
+                verdicts_mod.push_back(false);
+            }
+            for(int i = 0; i < 10; i++)
+            {
+                for(int j = 0; j < 100; j++)
                 {
-                    if(abs(numEvent[i] - EName[i][j] - EName[k][l] + numEvent[k]) >= eps && i != k)
+                    EName[i][j] = "";
+                    EValue[i][j] = "";
+
+                    EValueAll[i][j] = "";
+                }
+                numEvent[i] = 0;
+                numEventAll[i] = 0;
+            }
+            traceFileName = "details.txt";
+            numProcess = 0;
+            for(int i = 0; i < 50; i++)
+            {
+                hbSet[i][0] = 0;
+                hbSet[i][1] = 0;
+            }
+            numHbSet = 0;
+        }
+
+        void setValues(int m_id, vector<string> m_subformula, int m_num_monitors, string traceFile)
+        {
+            traceFileName = traceFile;
+            id = m_id;
+            subformula = m_subformula;
+            num_monitors = m_num_monitors;
+            for(int c = 0; c < num_monitors; c++)
+            {
+                verdicts.push_back(false);
+                verdicts_mod.push_back(false);
+            }
+            for(int i = 0; i < 10; i++)
+            {
+                for(int j = 0; j < 100; j++)
+                {
+                    EName[i][j] = "";
+                    EValue[i][j] = "";
+
+                    EValueAll[i][j] = "";
+                }
+                numEvent[i] = 0;
+                numEventAll[i] = 0;
+            }
+            numProcess = 0;
+            for(int i = 0; i < 50; i++)
+            {
+                hbSet[i][0] = 0;
+                hbSet[i][1] = 0;
+            }
+            numHbSet = 0;
+        }
+
+        void GetVerdict(Monitor* m, unsigned position, bool verdict)//adopts verdict "verdict" from monitor m, stores it in index "position"
+        {
+            verdicts[position] = verdict;
+            verdicts_mod[position] = true;
+
+        }
+
+        void ShareVerdict(Monitor* m)//shares own verdicts with monitor m
+        {
+            for(unsigned c=0;c<num_monitors;c++)
+            {
+                if(verdicts_mod[c])
+                    m->GetVerdict(this, c, verdicts[c]);
+            }
+        }
+
+        void readFile()
+        {
+            // cout << "In ReadFile" << endl;
+            ifstream MyFile("details.txt");
+            string line;
+            int proc = 0, event = -1, num = 0;
+            string word;
+            numProcess = -1;
+
+            while(getline(MyFile, line))
+            {
+                if(line.find("light") != -1 || line.find("switch") != -1)
+                {
+                    // cout << "1" << line << "\n";
+                    numProcess++;
+                }
+                else
+                {
+                    EValueAll[numProcess][numEventAll[numProcess]++] = line;
+                    // cout << EValueAll[numProcess][numEventAll[numProcess] - 1] << endl;
+                }
+            }
+            MyFile.close();
+        }
+
+        void readSegTrace(int start, int end, int eps)
+        {
+            int i, j, num = 1;
+            start = max(start - eps, 0);
+            // cout << start << " : " << end << endl;
+            for(i = 0; i < numProcess; i++)
+            {
+                numEvent[i] = 0;
+                for(j = start; j < min(numEventAll[i], end); j++)
+                {
+                    EName[i][numEvent[i]] = to_string(num++);
+                    EValue[i][numEvent[i]++] = EValueAll[i][j];
+                }
+                // cout << numEvent[i] << endl;
+            }
+            // cout << num << "\n";
+            for(int i = 0; i < numProcess; i++)
+            {
+                for(int j = 0; j < numEvent[i]; j++)
+                {
+                    for(int k = 0; k < numProcess; k++)
                     {
-                        hbSet[numHbSet][0] = stoi(EName[i][j]);
-                        hbSet[numHbSet++][1] = stoi(EName[k][l]);
-                        // cout << "Happen Before: " << hbSet[numHbSet - 1][0] << " : " << hbSet[numHbSet - 1][1] << "\n";
+                        for(int l = 0; l < numEvent[k]; l++)
+                        {
+                            if(abs(j - l) >= eps && i != k)
+                            {
+                                hbSet[numHbSet][0] = stoi(EName[i][j]);
+                                hbSet[numHbSet++][1] = stoi(EName[k][l]);
+                                // cout << "Happen Before: " << hbSet[numHbSet - 1][0] << " : " << hbSet[numHbSet - 1][1] << "\n";
+                            }
+                        }
                     }
                 }
             }
         }
-    }
-}
 
-void createSMT::makeSMTProg(int eps, int segLength, int maxTime, string phi, int numThreads)
-{
-    readFile();
-
-    string formulaList[10];
-    int numFormula = 2;
-    string currentFormula[10];
-
-    int start, end;
-    start = -segLength;
-    end = 0;
-
-    int resultMat[50][10];
-    for(int  i = 0; i < int (maxTime/ segLength) + 1; i++)
-    {
-        for(int j = 0; j < 2 * numFormula; j++)
+        bool solveSMT(int numFormula)
         {
-                resultMat[i][j] = 0;
-        }
-    }
+            context c;
 
-    int numSegment = -1;
-    int segmentL = maxTime/numThreads;
-    #pragma omp parallel num_threads(numThreads)
-    {
-        for(int seg = 0; seg < maxTime; seg = seg + segmentL)
-        {
-            numSegment++;
-            start = seg;
-            end = seg + segmentL;
-            // cout << start << " : " << end << endl;
-            solveSMTProg(formulaList, numFormula, start, end, segLength, eps);
+            solver s(c);
 
-            // readSegTrace(start, end, eps);
-            // numFormula = 4;
-            // for (int i = 0; i < 2 * numFormula; i++) {
-            //     // cout << statesList[i] << " : " << statesList[j] << "\n";
-            //     resultMat[numSegment][i] = solveSMTProg(formulaList[i / 2], i % 2);
-            // }
-        }
-    }
-
-    // for(int i = 0; i < numSegment; i++) {
-    //     string newCurrentFormula[10];
-    //     int numNewCurrentFormula = 0;
-    //     for(int j = 0; j < numCurrentFormula; j++) {
-    //         for(int k = 0; k < numFormula; k++) {
-    //             if(formulaList[k] == currentFormula[j]) {
-    //                 for(int l = 0; l < numFormula; l++) {
-    //                     if(resultMat[i][k][l] == 1)
-    //                         newCurrentFormula[numNewCurrentFormula ++] = formulaList[l];
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     numCurrentFormula = 0;
-    //     for(int j = 0; j < numNewCurrentFormula; j++) {
-    //         currentFormula[numCurrentFormula++] = newCurrentFormula[j];
-    //     }
-    // }
-}
-
-bool createSMT::solveSMTProg(string formulaList[10], int numFormula, int segStart, int segEnd, int segLength, int eps)
-{
-    context c;
-
-    solver s(c);
-
-    int start = segStart - segLength, end = segStart;
-    int result = 0;
-    while(end <= segEnd)
-    {
-        start += segLength;
-        end += segLength;
-
-        readSegTrace(start, end, eps);
-
-        for(int n = 0; n < 2 * numFormula; n++)
-        {
-            // cout << start << " : " << end << endl;
             expr_vector eventList(c);
 
             int totNumEvents = 0;
@@ -305,216 +274,19 @@ bool createSMT::solveSMTProg(string formulaList[10], int numFormula, int segStar
 
             if(s.check() == sat)
             {
-                result = 1;
-                cout << s.get_model() << endl;
+                // std::cout << "Sat" << std::endl;
+                return true;
+
+        //        model m = s.get_model();
+        //        std::cout << m << std::endl;
             }
             else
             {
-                result = 0;
-            }
+                // std::cout << "Unsat" << std::endl;
+                return false;
 
+            }
             s.reset();
-        }
-    }
-
-    if(s.check() == sat)
-    {
-        // std::cout << "Sat" << std::endl;
-        return true;
-
-//        model m = s.get_model();
-//        std::cout << m << std::endl;
-    }
-    else
-    {
-        // std::cout << "Unsat" << std::endl;
-        return false;
-
-    }
-}
-
-class mainProg
-{
-private:
-    int numCores;
-    float average(float*, int);
-    float standardDeviation(float*, int, float);
-
-public:
-    mainProg();
-    mainProg(int);
-    void execute();
-};
-
-mainProg::mainProg()
-{
-    numCores = 1;
-}
-
-mainProg::mainProg(int num)
-{
-    numCores = num;
-}
-
-float mainProg::average(float num[], int n)
-{
-    float sum = 0;
-    for(int i = 0; i < n; i++)
-        sum += num[i];
-    return sum/n;
-}
-
-float mainProg::standardDeviation(float num[], int n, float m)
-{
-    float sum = 0;
-    for(int i = 0; i < n; i++)
-    {
-        sum += pow(num[i] - m, 2);
-    }
-    return sqrt(sum/n);
-}
-
-void mainProg::execute()
-{
-    // cout << "hi";
-//    SynthExp synthExp("trace2_20.txt", "pq", 2, 20);
-//    synthExp.genTrace();
-    int numIter = 10;
-    float result[10];
-    float meanTime, sdTime;
-    clock_t runTime;
-
-    // ofstream outFile;
-    // outFile.open("report.csv");
-    // outFile << "numProcess, segLength, compLength, eps, eventRate, cenTime, cenTime-SD, distTime, distTime-SD" << endl;
-
-    int compLength = 200;
-    int eps = 25;
-    // int numProcess = 2;
-    // int segLength = 16;
-    int eventRate = 10;
-
-    // string traceFile = "trace" + to_string(numProcess) + "_" + to_string(int(compLength / 10));
-    // string command = "python synth-system.py " + to_string(numProcess) + " " + to_string(compLength) + " " + traceFile + " " + to_string(eventRate);
-    // system(command.c_str());
-
-    // cout << "numProcess: " << numProcess << " compLength: " << compLength << " segLength: " << segLength << " eps: " << eps << "\n";
-    // outFile << numProcess << ", " << segLength << ", " << compLength << ", " << eps << ", " << eventRate << ", ";
-
-    for(int i = 0; i < numIter; i++)
-    {
-        runTime = clock();
-        createSMT smtCen(traceFile);
-        smtCen.readFile();
-        smtMon.makeSMTMon(eps, segLength, compLength, numCores);
-        runTime = clock() - runTime;
-        result[i] = (float) runTime / CLOCKS_PER_SEC;
-        // cout << result[i] << endl;
-    }
-
-    meanTime = average(result, numIter);
-    sdTime = standardDeviation(result, numIter, meanTime);
-    cout << "CentralizedTime: " << meanTime << ", SD: " << sdTime << endl;
-    outFile << meanTime << ", " << sdTime << ", ";
-
-    for(int i = 0; i < numIter; i++)
-    {
-        runTime = clock();
-        createSMTProg smtProg(traceFile);
-        smtProg.makeSMTProg(eps, segLength, compLength, "<> r -> ( ! p U r)", numCores);
-        runTime = clock() - runTime;
-        result[i] = (float) runTime / CLOCKS_PER_SEC;
-        // cout << result[i] << endl;
-    }
-
-    meanTime = average(result, numIter);
-    sdTime = standardDeviation(result, numIter, meanTime);
-    cout << "DecentralizedTime: " << meanTime << ", SD: " << sdTime << endl;
-    outFile << meanTime << ", " << sdTime << endl;
-
-    outFile.close();
-}
-
-#include <iostream>
-#include <vector>
-#include <stdio.h>
-using namespace std;
-
-class Monitor {
-    public:
-        int id; //monitor id used for monitor-monitor communication
-        vector<string> subformula; //piece of formula we will evaluate - just the and, or operators
-        //["and","or"]
-        vector<bool> observations; //array of different boolean values from monitors
-        //[true,false,false]
-        //in this example, together this forms "true and false or false"
-        int num_monitors = 10; //number of monitors in system
-        vector<bool> verdicts; //array of all the verdicts from every monitor, indices are monitor ids
-        vector<bool> verdicts_mod; //array that tells us which verdicts have been modified
-
-        Monitor(int m_id, vector<string> m_subformula, int m_num_monitors) //constructor
-        {
-            id = m_id;
-            subformula = m_subformula;
-            num_monitors = m_num_monitors;
-            for(int c = 0; c < num_monitors; c++)
-            {
-                verdicts.push_back(false);
-                verdicts_mod.push_back(false);
-            }
-
-        }
-        void GetVerdict(Monitor* m, unsigned position, bool verdict)//adopts verdict "verdict" from monitor m, stores it in index "position"
-        {
-            verdicts[position] = verdict;
-            verdicts_mod[position] = true;
-
-        }
-        void ShareVerdict(Monitor* m)//shares own verdicts with monitor m
-        {
-            for(unsigned c=0;c<num_monitors;c++)
-            {
-                if(verdicts_mod[c])
-                    m->GetVerdict(this, c, verdicts[c]);
-            }
-        }
-        void Evaluate()//evaluates own subformula
-        {
-            vector<bool> sub_verdict;
-            for(unsigned c=1;c<observations.size(); c++)
-            {
-                if(c==1)
-                {
-                    bool verd;
-                    if(subformula[c-1]=="and")
-                        verd = observations[c] && observations[c-1];
-                    else
-                        verd = observations[c] || observations[c-1];
-                    sub_verdict.push_back(verd);
-                }
-                if(c>1)
-                {
-                    bool verd;
-                    if(subformula[c-1]=="and")
-                        verd = observations[c] && sub_verdict[c-2];
-                    else
-                        verd = observations[c] || sub_verdict[c-2];
-                    sub_verdict.push_back(verd);
-                }
-            }
-            verdicts[id] = sub_verdict.back();
-            verdicts_mod[id] = true;
-        }
-        bool Evaluate_All()//evaluates all subformulas into one formula
-        {
-            //formula is in form S1 and S2 and S3... such that Sk is the kth subformula
-            //if any of these sub-verdicts are false, our verdict is false
-            for(unsigned c=0;c<num_monitors;c++)
-            {
-                if(verdicts[c] == false)
-                    return false;
-            }
-            return true;
         }
 
 };
@@ -537,34 +309,132 @@ float standardDeviation(float num[], int n, float m)
     return sqrt(sum/n);
 }
 
-int main() {
-  vector<string> form1;
-  form1.push_back("and");
-  vector<string> form2;
-  form2.push_back("and");
+namespace fs = filesystem;
 
-  Monitor m(0,form1, 10);
-  m.observations.push_back(true);
-  m.observations.push_back(true);
+int main()
+{
+    clock_t startTime, endTime;
+    float cenTime = 0.0, dCenTime = 0.0;
+    string path = "bathroom", line;
+    int numSwitch = 0, numLight = 0, numMonitor, mon = 0;
+    Monitor monitorList[20];
+    Monitor centMon;
 
-  cout << "Before evaluation" << endl;
-  cout << m.verdicts[m.id] << endl;
-  m.Evaluate();
-  cout << "After evaluation" << endl;
-  cout << m.verdicts[m.id] << endl;
+    startTime = clock();
+    for (const auto & entry : fs::directory_iterator("data"))
+    {
+        string fileName = entry.path();
+        if(fileName.find(path + "switch") != -1)
+            numSwitch++;
+        else if(fileName.find(path + "light") != -1)
+            numLight++;
+    }
 
-  //Adding some other value to show that multiple values get shared
-  m.verdicts[8] = true;
-  m.verdicts_mod[8] = true;
+    numMonitor = numSwitch * numLight;
+    ofstream outCFile;
+    outCFile.open("detailsCen.txt");
+    vector<string> formC;
 
+    for(int plug = 1; plug <= numSwitch; plug++)
+    {
+        for(int light = 1; light <= numLight; light++)
+        {
+            // cout << plug << " : " << light << endl;
 
-  Monitor n(1,form2, 10);
-  for(unsigned c=0;c<10;c++)
-    cout << "Before sharing:" << n.verdicts[c] << endl;
-  cout << endl << "Sharing..." << endl << endl;
-  m.ShareVerdict(&n);
-  for(unsigned c=0;c<10;c++)
-    cout << "After sharing:" << n.verdicts[c] << endl;
+            ofstream outFile;
+            outFile.open("detailsDist.txt");
 
-  return 0;
+            ifstream inFile;
+            inFile.open("data/" + path + "switch_" + to_string(plug) + ".txt");
+            while(getline(inFile, line))
+            {
+                outFile << line << endl;
+                if(light == 1)
+                    outCFile << line << endl;
+            }
+            inFile.close();
+
+            inFile.open("data/" + path + "light_" + to_string(light) + ".txt");
+            while(getline(inFile, line))
+            {
+                outFile << line << endl;
+                outCFile << line << endl;
+            }
+            inFile.close();
+            outFile.close();
+
+            vector<string> form1;
+            form1.push_back("data/" + path + "switch_" + to_string(plug));
+            form1.push_back("data/" + path + "light_" + to_string(light));
+            if(light == 1)
+                formC.push_back("data/" + path + "switch_" + to_string(plug));
+            formC.push_back("data/" + path + "light_" + to_string(light));
+
+            monitorList[mon++].setValues(0, form1, numSwitch * numLight, "detailsDist.txt");
+            // monitorList[mon++] = m;
+            monitorList[mon - 1].readFile();
+            // m.observations.push_back(true);
+            // m.observations.push_back(true);
+
+            // cout << "Before evaluation" << endl;
+            // cout << m.verdicts[m.id] << endl;
+            // m.Evaluate();
+            // cout << "After evaluation" << endl;
+            // cout << m.verdicts[m.id] << endl;
+        }
+    }
+    outCFile.close();
+    centMon.setValues(0, formC, 1, "detailsCen.txt");
+    centMon.readFile();
+
+    endTime = clock();
+    cenTime += endTime - startTime;
+    dCenTime += endTime - startTime;
+    startTime = clock();
+
+    int eps = 2, segLength = 4;
+    int start = -segLength, end = 0;
+
+    while(end <= centMon.numEventAll[0])
+    {
+        start = end;
+        end += segLength;
+
+        for(int i = 0; i < numMonitor; i++) {
+            monitorList[i].readSegTrace(start, end, eps);
+
+            for(int j = 0; j < monitorList[i].subformula.size(); j++)
+                monitorList[i].verdicts_mod[j] = monitorList[i].solveSMT(j);
+
+            endTime = clock();
+            if(i == 1)
+                dCenTime += endTime - startTime;
+            startTime = clock();
+        }
+
+        startTime = clock();
+        centMon.readSegTrace(start, end, eps);
+        for(int j = 0; j < centMon.subformula.size(); j++)
+                centMon.verdicts_mod[j] = centMon.solveSMT(j);
+        endTime = clock();
+        cenTime += endTime - startTime;
+
+        startTime = clock();
+        for(int i = 0; i < numMonitor; i++) {
+            for(int j = 0; j < numMonitor; j++) {
+                if(i != j)
+                    monitorList[i].ShareVerdict(&monitorList[j]);
+            }
+
+            endTime = clock();
+            if(i == 1)
+                dCenTime += endTime - startTime;
+            startTime = clock();
+        }
+    }
+
+    cout << "Centralized Monitoring Time: " << cenTime / CLOCKS_PER_SEC;
+    cout << " Decentralized Monitoring Time: " << dCenTime / CLOCKS_PER_SEC << endl;    
+
+    return 0;
 }
