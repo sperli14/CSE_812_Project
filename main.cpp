@@ -126,7 +126,7 @@ class Monitor {
         void readFile()
         {
             // cout << "In ReadFile" << endl;
-            ifstream MyFile("details.txt");
+            ifstream MyFile(traceFileName);
             string line;
             int proc = 0, event = -1, num = 0;
             string word;
@@ -313,128 +313,146 @@ namespace fs = filesystem;
 
 int main()
 {
-    clock_t startTime, endTime;
-    float cenTime = 0.0, dCenTime = 0.0;
-    string path = "bathroom", line;
-    int numSwitch = 0, numLight = 0, numMonitor, mon = 0;
-    Monitor monitorList[20];
-    Monitor centMon;
+    string rooms[] = {"entrance", "kitchen", "office", "toilet", "staircase", "bathroom"};
 
-    startTime = clock();
-    for (const auto & entry : fs::directory_iterator("data"))
+    for(string path : rooms)
     {
-        string fileName = entry.path();
-        if(fileName.find(path + "switch") != -1)
-            numSwitch++;
-        else if(fileName.find(path + "light") != -1)
-            numLight++;
-    }
+        cout << path << endl;
 
-    numMonitor = numSwitch * numLight;
-    ofstream outCFile;
-    outCFile.open("detailsCen.txt");
-    vector<string> formC;
+        clock_t startTimeOff, endTimeOff, startTime, endTime;
+        float cenTime = 0.0, dCenTime = 0.0;
+        string line;
+        int numSwitch = 0, numLight = 0, numMonitor, mon = 0;
+        Monitor monitorList[20];
+        Monitor centMon;
 
-    for(int plug = 1; plug <= numSwitch; plug++)
-    {
-        for(int light = 1; light <= numLight; light++)
+        startTimeOff = clock();
+        for (const auto & entry : fs::directory_iterator("data"))
         {
-            // cout << plug << " : " << light << endl;
+            string fileName = entry.path();
+            if(fileName.find(path + "switch") != -1)
+                numSwitch++;
+            else if(fileName.find(path + "light") != -1)
+                numLight++;
+        }
 
-            ofstream outFile;
-            outFile.open("detailsDist.txt");
+        numMonitor = numSwitch * numLight;
+        ofstream outCFile;
+        outCFile.open("detailsCen.txt");
+        vector<string> formC;
 
-            ifstream inFile;
-            inFile.open("data/" + path + "switch_" + to_string(plug) + ".txt");
-            while(getline(inFile, line))
+        for(int plug = 1; plug <= numSwitch; plug++)
+        {
+            for(int light = 1; light <= numLight; light++)
             {
-                outFile << line << endl;
+                // cout << plug << " : " << light << endl;
+
+                ofstream outFile;
+                outFile.open("detailsDist.txt");
+
+                ifstream inFile;
+                inFile.open("data/" + path + "switch_" + to_string(plug) + ".txt");
+                while(getline(inFile, line))
+                {
+                    outFile << line << endl;
+                    if(light == 1)
+                        outCFile << line << endl;
+                }
+                inFile.close();
+
+                inFile.open("data/" + path + "light_" + to_string(light) + ".txt");
+                while(getline(inFile, line))
+                {
+                    outFile << line << endl;
+                    if(plug == 1)
+                        outCFile << line << endl;
+                }
+                inFile.close();
+                outFile.close();
+
+                vector<string> form1;
+                form1.push_back("data/" + path + "switch_" + to_string(plug));
+                form1.push_back("data/" + path + "light_" + to_string(light));
                 if(light == 1)
-                    outCFile << line << endl;
-            }
-            inFile.close();
+                    formC.push_back("data/" + path + "switch_" + to_string(plug));
+                if(plug == 1)
+                    formC.push_back("data/" + path + "light_" + to_string(light));
 
-            inFile.open("data/" + path + "light_" + to_string(light) + ".txt");
-            while(getline(inFile, line))
+                monitorList[mon++].setValues(0, form1, numSwitch * numLight, "detailsDist.txt");
+                // monitorList[mon++] = m;
+                monitorList[mon - 1].readFile();
+                // m.observations.push_back(true);
+                // m.observations.push_back(true);
+
+                // cout << "Before evaluation" << endl;
+                // cout << m.verdicts[m.id] << endl;
+                // m.Evaluate();
+                // cout << "After evaluation" << endl;
+                // cout << m.verdicts[m.id] << endl;
+            }
+        }
+        outCFile.close();
+        centMon.setValues(0, formC, 1, "detailsCen.txt");
+        centMon.readFile();
+
+        endTimeOff = clock();
+
+        // int eps = 2;
+        int segLength = 4;
+
+        for(int eps = 0; eps <= 5; eps++)
+        {
+            cenTime = endTimeOff - startTimeOff;
+            dCenTime = endTimeOff - startTimeOff;
+            startTime = clock();
+
+            int start = -segLength, end = 0;
+
+            while(end < centMon.numEventAll[0])
             {
-                outFile << line << endl;
-                outCFile << line << endl;
+                start = end;
+                end += segLength;
+                // cout << start << " : " << end << endl;
+
+                for(int i = 0; i < numMonitor; i++) {
+                    monitorList[i].readSegTrace(start, end, eps);
+
+                    // for(int j = 0; j < monitorList[i].subformula.size(); j++)
+                    //     monitorList[i].verdicts_mod[j] = monitorList[i].solveSMT(j);
+                    monitorList[i].verdicts_mod[0] = monitorList[i].solveSMT(0);
+
+                    endTime = clock();
+                    // if(i == 1)
+                    dCenTime += endTime - startTime;
+                    startTime = clock();
+                }
+
+                startTime = clock();
+                centMon.readSegTrace(start, end, eps);
+                // for(int j = 0; j < centMon.subformula.size(); j++)
+                //     centMon.verdicts_mod[j] = centMon.solveSMT(j);
+                centMon.verdicts_mod[0] = centMon.solveSMT(0);
+                endTime = clock();
+                cenTime += endTime - startTime;
+
+                startTime = clock();
+                for(int i = 0; i < numMonitor; i++) {
+                    for(int j = 0; j < numMonitor; j++) {
+                        if(i != j)
+                            monitorList[i].ShareVerdict(&monitorList[j]);
+                    }
+
+                    endTime = clock();
+                    if(i == 1)
+                        dCenTime += endTime - startTime;
+                    startTime = clock();
+                }
             }
-            inFile.close();
-            outFile.close();
-
-            vector<string> form1;
-            form1.push_back("data/" + path + "switch_" + to_string(plug));
-            form1.push_back("data/" + path + "light_" + to_string(light));
-            if(light == 1)
-                formC.push_back("data/" + path + "switch_" + to_string(plug));
-            formC.push_back("data/" + path + "light_" + to_string(light));
-
-            monitorList[mon++].setValues(0, form1, numSwitch * numLight, "detailsDist.txt");
-            // monitorList[mon++] = m;
-            monitorList[mon - 1].readFile();
-            // m.observations.push_back(true);
-            // m.observations.push_back(true);
-
-            // cout << "Before evaluation" << endl;
-            // cout << m.verdicts[m.id] << endl;
-            // m.Evaluate();
-            // cout << "After evaluation" << endl;
-            // cout << m.verdicts[m.id] << endl;
+            cout << "segLength: " << segLength << " eps: " << eps << endl;
+            cout << "Centralized Monitoring Time: " << cenTime / CLOCKS_PER_SEC << endl;
+            cout << "Decentralized Monitoring Time: " << dCenTime / CLOCKS_PER_SEC << endl;
         }
     }
-    outCFile.close();
-    centMon.setValues(0, formC, 1, "detailsCen.txt");
-    centMon.readFile();
-
-    endTime = clock();
-    cenTime += endTime - startTime;
-    dCenTime += endTime - startTime;
-    startTime = clock();
-
-    int eps = 2, segLength = 4;
-    int start = -segLength, end = 0;
-
-    while(end <= centMon.numEventAll[0])
-    {
-        start = end;
-        end += segLength;
-
-        for(int i = 0; i < numMonitor; i++) {
-            monitorList[i].readSegTrace(start, end, eps);
-
-            for(int j = 0; j < monitorList[i].subformula.size(); j++)
-                monitorList[i].verdicts_mod[j] = monitorList[i].solveSMT(j);
-
-            endTime = clock();
-            if(i == 1)
-                dCenTime += endTime - startTime;
-            startTime = clock();
-        }
-
-        startTime = clock();
-        centMon.readSegTrace(start, end, eps);
-        for(int j = 0; j < centMon.subformula.size(); j++)
-                centMon.verdicts_mod[j] = centMon.solveSMT(j);
-        endTime = clock();
-        cenTime += endTime - startTime;
-
-        startTime = clock();
-        for(int i = 0; i < numMonitor; i++) {
-            for(int j = 0; j < numMonitor; j++) {
-                if(i != j)
-                    monitorList[i].ShareVerdict(&monitorList[j]);
-            }
-
-            endTime = clock();
-            if(i == 1)
-                dCenTime += endTime - startTime;
-            startTime = clock();
-        }
-    }
-
-    cout << "Centralized Monitoring Time: " << cenTime / CLOCKS_PER_SEC;
-    cout << " Decentralized Monitoring Time: " << dCenTime / CLOCKS_PER_SEC << endl;    
 
     return 0;
 }

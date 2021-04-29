@@ -18,6 +18,9 @@ In the z3-master directory
 		3. make
 		4. sudo make install
 
-Copy the main.cpp and all other files into build
+Copy the main.cpp and all other files into examples/c++
+
+make examples
+./cpp_example
 
 Compile, build, run!
